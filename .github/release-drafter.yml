@@ -1,4 +1,14 @@
 # See https://github.com/jenkinsci/.github/blob/master/.github/release-drafter.adoc
 ---
 _extends: .github
-tag-template: pipeline-reporter-$NEXT_MINOR_VERSION
+tag-template: postgres-pipeline-reporter-$NEXT_MINOR_VERSION
+
+# Minimal template required by release-drafter. This controls the body of the drafted release.
+template: |
+  ## Changes
+
+  $CHANGES
+
+name-template: "$TAG"
+
+# Optional: customize version format or other settings in this file as needed.
