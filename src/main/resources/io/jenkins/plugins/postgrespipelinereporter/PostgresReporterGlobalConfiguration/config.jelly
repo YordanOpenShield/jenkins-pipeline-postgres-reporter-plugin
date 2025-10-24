@@ -5,6 +5,9 @@
     <f:entry title="Database URL" field="dbUrl">
       <f:textbox />
     </f:entry>
+    <f:entry title="Table Name" field="dbTable">
+      <f:textbox />
+    </f:entry>
     <f:entry title="Database User" field="dbUser">
       <f:textbox />
     </f:entry>
@@ -13,4 +16,3 @@
     </f:entry>
   </f:section>
 </j:jelly>
-

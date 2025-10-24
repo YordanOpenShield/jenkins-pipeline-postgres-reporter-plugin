@@ -19,16 +19,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          BEFORE='${{ github.event.before }}'
-          echo "Before commit: $BEFORE"
-          if [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
-            echo "No previous commit (new branch or force push). Skipping validation."
-            exit 0
+          # Determine base branch for the PR (the branch into which this PR will be merged)
+          BASE_REF='${{ github.event.pull_request.base.ref }}'
+          echo "Base ref: $BASE_REF"
+          if [ -z "$BASE_REF" ]; then
+            # fallback to 'main'
+            BASE_REF=main
           fi
 
-          # extract previous pom.xml from the commit referenced by github.event.before
-          if ! git show "$BEFORE":pom.xml > old_pom.xml 2>/dev/null; then
-            echo "Failed to extract pom.xml from previous commit $BEFORE" >&2
+          # fetch the base branch and extract pom.xml from it
+          git fetch origin "$BASE_REF":"refs/remotes/origin/$BASE_REF" --depth=1 || true
+          if ! git show "origin/$BASE_REF":pom.xml > old_pom.xml 2>/dev/null; then
+            echo "Failed to extract pom.xml from base branch origin/$BASE_REF" >&2
             exit 1
           fi
 

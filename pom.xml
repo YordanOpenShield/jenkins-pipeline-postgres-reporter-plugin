@@ -34,7 +34,7 @@
   </scm>
 
   <properties>
-    <revision>1.1</revision>
+    <revision>1.2</revision>
     <changelist></changelist>
     <!-- https://www.jenkins.io/doc/developer/plugin-development/choosing-jenkins-baseline/ -->
     <jenkins.baseline>2.504</jenkins.baseline>
@@ -94,6 +94,11 @@
       <artifactId>postgresql</artifactId>
       <version>42.7.8</version>
       <!-- compile scope (default) so maven-hpi-plugin includeDependencies=true will package it into the HPI -->
+    </dependency>
+    <dependency>
+      <groupId>org.jdbi</groupId>
+      <artifactId>jdbi3-core</artifactId>
+      <version>3.39.0</version>
     </dependency>
   </dependencies>
 
