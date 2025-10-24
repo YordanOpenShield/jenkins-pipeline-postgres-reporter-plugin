@@ -95,6 +95,11 @@
       <version>42.7.8</version>
       <!-- compile scope (default) so maven-hpi-plugin includeDependencies=true will package it into the HPI -->
     </dependency>
+    <dependency>
+      <groupId>org.jdbi</groupId>
+      <artifactId>jdbi3-core</artifactId>
+      <version>3.39.0</version>
+    </dependency>
   </dependencies>
 
   <repositories>

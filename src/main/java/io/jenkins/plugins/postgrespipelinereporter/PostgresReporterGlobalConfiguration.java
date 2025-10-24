@@ -22,6 +22,9 @@ public class PostgresReporterGlobalConfiguration extends GlobalConfiguration {
     public String getDbUrl() { return dbUrl; }
     @DataBoundSetter public void setDbUrl(String dbUrl) { this.dbUrl = dbUrl; save(); }
 
+    public String getTableName() { return dbTable; }
+    @DataBoundSetter public void setTableName(String dbTable) { this.dbTable = dbTable; save(); }
+
     public String getDbUser() { return dbUser; }
     @DataBoundSetter public void setDbUser(String dbUser) { this.dbUser = dbUser; save(); }
 
