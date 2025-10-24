@@ -34,6 +34,7 @@ public class PipelineRunListener extends RunListener<Run<?, ?>> {
             }
 
             String url = cfg.getDbUrl();
+            String dbTable = cfg.getDbTable();
             String user = cfg.getDbUser();
             String password = cfg.getDbPassword();
 
@@ -75,28 +76,11 @@ public class PipelineRunListener extends RunListener<Run<?, ?>> {
 
                 // Use JDBI for simple inserts and create table if not exists
                 Jdbi jdbi = Jdbi.create(url, user, password);
-                String table = cfg.getTableName();
-                // sanitize table name: allow only alphanumerics and underscore
-                if (table == null || !Pattern.matches("^[A-Za-z0-9_]+$", table)) {
-                    table = "jenkins_pipeline_runs";
-                }
+                String table = cfg.getDbTable();
 
                 try {
                     jdbi.useHandle(handle -> {
-                        // create table if it does not exist
-                        String createSql = "CREATE TABLE IF NOT EXISTS " + table + " (" +
-                                "id serial PRIMARY KEY, " +
-                                "folder text, " +
-                                "job_name text, " +
-                                "build_number integer, " +
-                                "causer text, " +
-                                "jenkins_url text, " +
-                                "status text, " +
-                                "duration_ms bigint, " +
-                                "start_time timestamp" +
-                                ")";
-                        handle.execute(createSql);
-
+                        // gather data to insert
                         String folder = "(root)";
                         String jobName = "(unknown)";
                         if (run.getParent() != null) {
@@ -156,12 +140,6 @@ public class PipelineRunListener extends RunListener<Run<?, ?>> {
                     listener.getLogger().println("[PostgresReporter] Failed to execute SQL statement: " + e.getMessage());
                     e.printStackTrace(listener.getLogger());
                     return;
-                }
-                    catch (Exception e) {
-                        listener.getLogger().println("[PostgresReporter] Failed to execute SQL statement: " + e.getMessage());
-                        e.printStackTrace(listener.getLogger());
-                        return;
-                    }
                 }
             } finally {
                 // Unregister shim driver if we registered one to avoid classloader leaks
