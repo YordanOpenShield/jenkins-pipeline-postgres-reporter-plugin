@@ -1,0 +1,79 @@
+name: Version Validator
+on:
+  pull_request:
+    branches:
+      - "master"
+      - "main"
+
+jobs:
+  validate-version:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate version bump in pom.xml
+        id: validate
+        shell: bash
+        run: |
+          set -euo pipefail
+          BEFORE='${{ github.event.before }}'
+          echo "Before commit: $BEFORE"
+          if [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+            echo "No previous commit (new branch or force push). Skipping validation."
+            exit 0
+          fi
+
+          # extract previous pom.xml from the commit referenced by github.event.before
+          if ! git show "$BEFORE":pom.xml > old_pom.xml 2>/dev/null; then
+            echo "Failed to extract pom.xml from previous commit $BEFORE" >&2
+            exit 1
+          fi
+
+          # extract revision values
+          old_rev=$(sed -n 's:.*<revision>\(.*\)</revision>.*:\1:p' old_pom.xml | head -n1 || true)
+          new_rev=$(sed -n 's:.*<revision>\(.*\)</revision>.*:\1:p' pom.xml | head -n1 || true)
+
+          if [ -z "$old_rev" ] || [ -z "$new_rev" ]; then
+            echo "Missing <revision> in old or new pom.xml" >&2
+            echo "old_rev='$old_rev' new_rev='$new_rev'" >&2
+            exit 1
+          fi
+
+          echo "Old revision: $old_rev"
+          echo "New revision: $new_rev"
+
+          # Expect format MAJOR.MINOR (two numeric parts)
+          IFS='.' read -r old_major old_minor <<< "$old_rev"
+          IFS='.' read -r new_major new_minor <<< "$new_rev"
+
+          if ! [[ "$old_major" =~ ^[0-9]+$ ]] || ! [[ "$old_minor" =~ ^[0-9]+$ ]] || ! [[ "$new_major" =~ ^[0-9]+$ ]] || ! [[ "$new_minor" =~ ^[0-9]+$ ]]; then
+            echo "Revision parts must be numeric MAJOR.MINOR (e.g. 1.2)" >&2
+            exit 1
+          fi
+
+          old_major_i=$((old_major))
+          old_minor_i=$((old_minor))
+          new_major_i=$((new_major))
+          new_minor_i=$((new_minor))
+
+          ok=0
+          # Allowed transitions:
+          # 1) Minor bump: same major, minor increased by 1
+          if [ "$new_major_i" -eq "$old_major_i" ] && [ "$new_minor_i" -eq $((old_minor_i + 1)) ]; then
+            ok=1
+            echo "Valid minor bump: $old_rev -> $new_rev"
+          fi
+
+          # 2) Major bump: major increased by 1 and minor reset to 0
+          if [ "$new_major_i" -eq $((old_major_i + 1)) ] && [ "$new_minor_i" -eq 0 ]; then
+            ok=1
+            echo "Valid major bump: $old_rev -> $new_rev"
+          fi
+
+          if [ "$ok" -ne 1 ]; then
+            echo "Invalid version bump: expected either a minor bump (MAJOR.(MINOR+1)) or a major bump ((MAJOR+1).0)" >&2
+            exit 1
+          fi
