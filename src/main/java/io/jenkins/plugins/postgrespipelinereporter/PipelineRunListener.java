@@ -76,7 +76,6 @@ public class PipelineRunListener extends RunListener<Run<?, ?>> {
 
                 // Use JDBI for simple inserts and create table if not exists
                 Jdbi jdbi = Jdbi.create(url, user, password);
-                String table = cfg.getDbTable();
 
                 try {
                     jdbi.useHandle(handle -> {
@@ -125,7 +124,7 @@ public class PipelineRunListener extends RunListener<Run<?, ?>> {
                         long duration = run.getDuration(); // primitive long, never null
                         long startTime = run.getStartTimeInMillis(); // primitive long
 
-                        handle.createUpdate("INSERT INTO " + table + " (folder, job_name, build_number, causer, jenkins_url, status, duration_ms, start_time) VALUES (:folder, :job_name, :build_number, :causer, :jenkins_url, :status, :duration_ms, :start_time)")
+                        handle.createUpdate("INSERT INTO " + dbTable + " (folder, job_name, build_number, causer, jenkins_url, status, duration_ms, start_time) VALUES (:folder, :job_name, :build_number, :causer, :jenkins_url, :status, :duration_ms, :start_time)")
                                 .bind("folder", folder)
                                 .bind("job_name", jobName)
                                 .bind("build_number", buildNumber)
