@@ -1,0 +1,141 @@
+stages:
+  - test
+  - build
+  - release
+
+# Jenkins security scan approximation: run a full Maven verification on main/master and on MRs
+
+jenkins_security_scan:
+  image: maven:3.8.8-jdk-11
+  stage: test
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push" && ($CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "master")'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+  variables:
+    MAVEN_OPTS: "-Xms256m -Xmx1g"
+  cache:
+    key: ${CI_PROJECT_PATH}
+    paths:
+      - .m2/repository
+  script: |
+    mvn -B -V -e -DskipTests verify
+  artifacts:
+    when: always
+    paths:
+      - target/*.hpi
+      - target/*.jar
+
+# Validate version bump on merge requests (compare pom.xml with target branch)
+
+validate_version:
+  image: alpine:3.18
+  stage: test
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+  before_script:
+    - apk add --no-cache bash git perl
+  script: |
+    set -euo pipefail
+    echo "CI_MERGE_REQUEST_TARGET_BRANCH_NAME=$CI_MERGE_REQUEST_TARGET_BRANCH_NAME"
+    BASE_REF="${CI_MERGE_REQUEST_TARGET_BRANCH_NAME:-main}"
+    echo "Fetching base branch: $BASE_REF"
+    git fetch origin "$BASE_REF":"refs/remotes/origin/$BASE_REF" --depth=1 || true
+    if ! git show "origin/$BASE_REF":pom.xml > old_pom.xml 2>/dev/null; then echo "Failed to extract pom.xml from origin/$BASE_REF" >&2; exit 1; fi
+    old_rev=$(sed -n 's:.*<revision>\(.*\)</revision>.*:\1:p' old_pom.xml | head -n1 || true)
+    new_rev=$(sed -n 's:.*<revision>\(.*\)</revision>.*:\1:p' pom.xml | head -n1 || true)
+    if [ -z "$old_rev" ] || [ -z "$new_rev" ]; then echo "Missing <revision> in old or new pom.xml" >&2; echo "old_rev='$old_rev' new_rev='$new_rev'" >&2; exit 1; fi
+    echo "Old revision: $old_rev"
+    echo "New revision: $new_rev"
+    IFS='.' read -r old_major old_minor <<< "$old_rev"
+    IFS='.' read -r new_major new_minor <<< "$new_rev"
+    if ! [[ "$old_major" =~ ^[0-9]+$ ]] || ! [[ "$old_minor" =~ ^[0-9]+$ ]] || ! [[ "$new_major" =~ ^[0-9]+$ ]] || ! [[ "$new_minor" =~ ^[0-9]+$ ]]; then echo "Revision parts must be numeric MAJOR.MINOR (e.g. 1.2)" >&2; exit 1; fi
+    old_major_i=$((old_major))
+    old_minor_i=$((old_minor))
+    new_major_i=$((new_major))
+    new_minor_i=$((new_minor))
+    ok=0
+    if [ "$new_major_i" -eq "$old_major_i" ] && [ "$new_minor_i" -eq $((old_minor_i + 1)) ]; then ok=1; echo "Valid minor bump: $old_rev -> $new_rev"; fi
+    if [ "$new_major_i" -eq $((old_major_i + 1)) ] && [ "$new_minor_i" -eq 0 ]; then ok=1; echo "Valid major bump: $old_rev -> $new_rev"; fi
+    if [ "$ok" -ne 1 ]; then echo "Invalid version bump: expected either a minor bump (MAJOR.(MINOR+1)) or a major bump ((MAJOR+1).0)" >&2; exit 1; fi
+
+# Build job: package the plugin (runs on branches and tags)
+
+build:
+  image: maven:3.8.8-jdk-11
+  stage: build
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push"'
+    - when: manual
+  cache:
+    key: ${CI_PROJECT_PATH}
+    paths:
+      - .m2/repository
+  script: |
+    mvn -B -V -e -DskipTests package
+  artifacts:
+    when: always
+    paths:
+      - target/*.hpi
+      - target/*.pom
+
+# Release drafter approximation: generate a release draft markdown on pushes to main/master
+
+release_drafter:
+  image: alpine:3.18
+  stage: release
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push" && ($CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "master")'
+  before_script:
+    - apk add --no-cache git
+  script: |
+    LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || true)
+    if [ -z "$LAST_TAG" ]; then RANGE=""; else RANGE="$LAST_TAG..HEAD"; fi
+    echo "Generating release draft for range: $RANGE"
+    if [ -z "$RANGE" ]; then git log --pretty=format:'* %s (%h)' --reverse > release-draft.md; else git log "$RANGE" --pretty=format:'* %s (%h)' --reverse > release-draft.md; fi
+    echo "# Release Draft" > release-notes.md
+    echo >> release-notes.md
+    cat release-draft.md >> release-notes.md
+  artifacts:
+    paths:
+      - release-notes.md
+      - release-draft.md
+    expire_in: 1 week
+
+# Release the built HPI to GitLab Releases (manual trigger)
+
+release:
+  image: alpine:3.18
+  stage: release
+  needs:
+    - job: release_drafter
+      artifacts: true
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push" && ($CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "master")'
+  before_script:
+    - apk add --no-cache curl
+  script: |
+    if [ ! -f release-notes.md ]; then
+      echo "No release-notes.md artifact found"
+      exit 1
+    fi
+
+    TAG=${CI_COMMIT_TAG:-"release-${CI_COMMIT_SHORT_SHA}"}
+    echo "Creating release for tag: $TAG"
+
+    if [ -z "${GITLAB_TOKEN:-}" ]; then
+      echo "Please provide GITLAB_TOKEN as a protected project variable (api scope required)."
+      exit 1
+    fi
+
+    # create tag (if needed). ignore error if already exists
+    curl -sS --request POST "$CI_API_V4_URL/projects/$CI_PROJECT_ID/repository/tags" \
+      --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
+      --form "tag_name=$TAG" \
+      --form "ref=$CI_COMMIT_REF_NAME" || true
+
+    # create release with release-notes (newlines preserved)
+    curl -sS --request POST "$CI_API_V4_URL/projects/$CI_PROJECT_ID/releases" \
+      --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
+      --form "name=$TAG" \
+      --form "tag_name=$TAG" \
+      --form "description=$(cat release-notes.md)"
