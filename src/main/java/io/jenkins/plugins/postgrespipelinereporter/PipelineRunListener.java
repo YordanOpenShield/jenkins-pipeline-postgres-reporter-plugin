@@ -116,6 +116,7 @@ public class PipelineRunListener extends RunListener<Run<?, ?>> {
                                 jenkinsUrl = "";
                             }
                         }
+                        jenkinsUrl = jenkinsUrl + run.getUrl();
 
                         String status = "UNKNOWN";
                         if (run.getResult() != null && run.getResult().toString() != null) {
